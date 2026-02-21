@@ -90,6 +90,9 @@ func (*mockModel) Watch(context.Context) error                         { return 
 func (*mockModel) Get(context.Context, string) (runtime.Object, error) { return nil, nil }
 func (*mockModel) InNamespace(string) bool                             { return true }
 func (*mockModel) SetRefreshRate(time.Duration)                        {}
+func (*mockModel) GetRefreshRate() time.Duration                       { return 0 }
+func (*mockModel) GetLastRefreshAt() time.Time                         { return time.Time{} }
+func (*mockModel) GetRefreshCount() int32                              { return 0 }
 
 func (*mockModel) Delete(context.Context, string, *metav1.DeletionPropagation, dao.Grace) error {
 	return nil

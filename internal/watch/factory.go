@@ -27,20 +27,27 @@ const (
 
 // Factory tracks various resource informers.
 type Factory struct {
-	factories  map[string]di.DynamicSharedInformerFactory
-	client     client.Connection
-	stopChan   chan struct{}
-	forwarders Forwarders
-	mx         sync.RWMutex
+	factories        map[string]di.DynamicSharedInformerFactory
+	client           client.Connection
+	stopChan         chan struct{}
+	forwarders       Forwarders
+	cacheSyncTimeout time.Duration
+	mx               sync.RWMutex
 }
 
 // NewFactory returns a new informers factory.
 func NewFactory(clt client.Connection) *Factory {
 	return &Factory{
-		client:     clt,
-		factories:  make(map[string]di.DynamicSharedInformerFactory),
-		forwarders: NewForwarders(),
+		client:           clt,
+		factories:        make(map[string]di.DynamicSharedInformerFactory),
+		forwarders:       NewForwarders(),
+		cacheSyncTimeout: defaultWaitTime,
 	}
+}
+
+// SetCacheSyncTimeout sets the informer cache sync timeout.
+func (f *Factory) SetCacheSyncTimeout(d time.Duration) {
+	f.cacheSyncTimeout = d
 }
 
 // Start initializes the informers until caller cancels the context.
@@ -152,7 +159,7 @@ func (f *Factory) waitForCacheSync(ns string) {
 	// Hang for a sec for the cache to refresh if still not done bail out!
 	c := make(chan struct{})
 	go func(c chan struct{}) {
-		<-time.After(defaultWaitTime)
+		<-time.After(f.cacheSyncTimeout)
 		close(c)
 	}(c)
 	_ = fac.WaitForCacheSync(c)

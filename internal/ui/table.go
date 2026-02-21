@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
@@ -34,6 +35,8 @@ type (
 	SelectedRowFunc func(r int)
 )
 
+const sparkLen = 90
+
 // Table represents tabular data.
 type Table struct {
 	*SelectTable
@@ -57,6 +60,8 @@ type Table struct {
 	readOnly       bool
 	noIcon         bool
 	fullGVR        bool
+	lastScreen     tcell.Screen
+	animStartAt    time.Time
 }
 
 // NewTable returns a new table view.
@@ -310,6 +315,121 @@ func (t *Table) Init(ctx context.Context) {
 	t.StylesChanged(t.styles)
 }
 
+// Draw renders the table and overlays a refresh progress indicator on the border.
+func (t *Table) Draw(screen tcell.Screen) {
+	t.lastScreen = screen
+	t.SelectTable.Draw(screen)
+	defer func() { recover() }()
+	t.drawProgressBorder(screen)
+}
+
+// DrawBorderAnimation draws only the border animation and flushes the
+// affected cells to the terminal. This is used by the high-FPS animation
+// goroutine to update the border without a full widget redraw.
+func (t *Table) DrawBorderAnimation() {
+	defer func() { recover() }()
+
+	s := t.lastScreen
+	if s == nil {
+		return
+	}
+	t.drawProgressBorder(s)
+	s.Show()
+}
+
+// drawProgressBorder overdraws the border with a traveling spark that
+// moves left to right along the top edge as the refresh timer advances.
+func (t *Table) drawProgressBorder(screen tcell.Screen) {
+	x, y, width, height := t.GetRect()
+	if width < 2 || height < 2 {
+		return
+	}
+	if t.styles == nil {
+		return
+	}
+	m := t.GetModel()
+	if m == nil {
+		return
+	}
+	// Skip animation until the second refresh so the first load shows instantly.
+	if m.GetRefreshCount() < 2 {
+		return
+	}
+	if t.animStartAt.IsZero() {
+		return
+	}
+	refreshRate := m.GetRefreshRate()
+	if refreshRate <= 0 {
+		return
+	}
+
+	elapsed := time.Since(t.animStartAt)
+
+	// Build ordered list of border cells along the top edge (left to right),
+	// skipping corner characters and title text.
+	type cell struct {
+		px, py int
+		r      rune
+	}
+	var cells []cell
+
+	// Top edge only (skip corners and title text)
+	horizontal := tview.Borders.Horizontal
+	for dx := 0; dx < width; dx++ {
+		r, _, _, _ := screen.GetContent(x+dx, y)
+		if r == horizontal {
+			cells = append(cells, cell{x + dx, y, r})
+		}
+	}
+
+	n := len(cells)
+	if n == 0 {
+		return
+	}
+
+	focusColor := t.styles.Frame().Border.FocusColor.Color()
+	bgColor := t.styles.BgColor()
+	borderStyle := tcell.StyleDefault.Foreground(focusColor).Background(bgColor)
+
+	// Spark completes in 60% of the refresh interval, then idles.
+	animDuration := time.Duration(float64(refreshRate) * 0.60)
+	p := float64(elapsed) / float64(animDuration)
+	if p > 1 {
+		p = 1
+	}
+	// Ease-in-out: slow start, fast middle, slow end.
+	if p < 0.5 {
+		p = 2 * p * p
+	} else {
+		p = 1 - 2*(1-p)*(1-p)
+	}
+	sparkHead := int(p * float64(n+sparkLen))
+
+	// Decompose focus color into RGB for blending.
+	fr, fg, fb := focusColor.RGB()
+
+	// Spark head color: near-white with a hint of the border's hue.
+	const lighten = 0.85
+	sr := fr + int32(float64(255-fr)*lighten)
+	sg := fg + int32(float64(255-fg)*lighten)
+	sb := fb + int32(float64(255-fb)*lighten)
+
+	for i, c := range cells {
+		dist := sparkHead - i
+		if i > 0 && dist >= 0 && dist < sparkLen {
+			// Gradient: head is light, tail blends back to the border color.
+			fade := float64(dist) / float64(sparkLen) // 0 at head, ~1 at tail
+			r := fr + int32(float64(sr-fr)*(1-fade))
+			g := fg + int32(float64(sg-fg)*(1-fade))
+			b := fb + int32(float64(sb-fb)*(1-fade))
+			sparkColor := tcell.NewRGBColor(r, g, b)
+			screen.SetContent(c.px, c.py, c.r, nil, tcell.StyleDefault.Foreground(sparkColor).Background(bgColor))
+		} else {
+			screen.SetContent(c.px, c.py, c.r, nil, borderStyle)
+		}
+	}
+}
+
 // GVR returns a resource descriptor.
 func (t *Table) GVR() *client.GVR { return t.gvr }
 
@@ -469,6 +589,7 @@ func (t *Table) shouldExcludeColumn(h model1.HeaderColumn) bool {
 }
 
 func (t *Table) UpdateUI(cdata, data *model1.TableData) {
+	t.animStartAt = time.Now()
 	t.Clear()
 	fg := t.styles.Table().Header.FgColor.Color()
 	bg := t.styles.Table().Header.BgColor.Color()

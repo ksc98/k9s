@@ -164,6 +164,9 @@ func (*mockTableModel) ToYAML(context.Context, string) (string, error) {
 }
 func (*mockTableModel) InNamespace(string) bool      { return true }
 func (*mockTableModel) SetRefreshRate(time.Duration) {}
+func (*mockTableModel) GetRefreshRate() time.Duration                       { return 0 }
+func (*mockTableModel) GetLastRefreshAt() time.Time                         { return time.Time{} }
+func (*mockTableModel) GetRefreshCount() int32                              { return 0 }
 
 func makeTableData() *model1.TableData {
 	return model1.NewTableDataWithRows(

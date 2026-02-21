@@ -44,6 +44,8 @@ type Table struct {
 	listeners     []TableListener
 	inUpdate      int32
 	refreshRate   time.Duration
+	lastRefreshAt time.Time
+	refreshCount  int32
 	instance      string
 	labelSelector labels.Selector
 	mx            sync.RWMutex
@@ -177,6 +179,24 @@ func (t *Table) SetRefreshRate(d time.Duration) {
 	t.refreshRate = d
 }
 
+// GetRefreshRate returns the model refresh duration.
+func (t *Table) GetRefreshRate() time.Duration {
+	return t.refreshRate
+}
+
+// GetLastRefreshAt returns the time of the last successful refresh.
+func (t *Table) GetLastRefreshAt() time.Time {
+	t.mx.RLock()
+	defer t.mx.RUnlock()
+
+	return t.lastRefreshAt
+}
+
+// GetRefreshCount returns the number of completed refreshes.
+func (t *Table) GetRefreshCount() int32 {
+	return atomic.LoadInt32(&t.refreshCount)
+}
+
 // ClusterWide checks if resource is scope for all namespaces.
 func (t *Table) ClusterWide() bool {
 	return client.IsClusterWide(t.data.GetNamespace())
@@ -236,6 +256,12 @@ func (t *Table) refresh(ctx context.Context) error {
 	if err := t.reconcile(ctx); err != nil {
 		return err
 	}
+
+	t.mx.Lock()
+	t.lastRefreshAt = time.Now()
+	t.mx.Unlock()
+	atomic.AddInt32(&t.refreshCount, 1)
+
 	data := t.Peek()
 	if data.RowCount() == 0 {
 		t.fireNoData(data)

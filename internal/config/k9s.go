@@ -51,6 +51,9 @@ type K9s struct {
 	Logger              Logger     `json:"logger" yaml:"logger"`
 	Thresholds          Threshold  `json:"thresholds" yaml:"thresholds"`
 	DefaultView         string     `json:"defaultView" yaml:"defaultView"`
+	CacheSyncTimeout    string     `json:"cacheSyncTimeout" yaml:"cacheSyncTimeout,omitempty"`
+	UIFPS               int        `json:"uiFPS" yaml:"uiFPS,omitempty"`
+	AnimationFPS        int        `json:"animationFPS" yaml:"animationFPS,omitempty"`
 	manualRefreshRate   float32
 	manualReadOnly      *bool
 	manualCommand       *string
@@ -150,6 +153,9 @@ func (k *K9s) Merge(k1 *K9s) {
 	k.ShellPod = k1.ShellPod
 	k.Logger = k1.Logger
 	k.ImageScans = k1.ImageScans
+	k.CacheSyncTimeout = k1.CacheSyncTimeout
+	k.UIFPS = k1.UIFPS
+	k.AnimationFPS = k1.AnimationFPS
 	if k1.Thresholds != nil {
 		k.Thresholds = k1.Thresholds
 	}
@@ -405,6 +411,41 @@ func (k *K9s) GetRefreshRate() float32 {
 // RefreshDuration returns the refresh rate as a time.Duration.
 func (k *K9s) RefreshDuration() time.Duration {
 	return time.Duration(k.GetRefreshRate() * float32(time.Second))
+}
+
+// GetCacheSyncTimeout returns the informer cache sync timeout as a duration.
+// Defaults to 500ms if not set or invalid.
+func (k *K9s) GetCacheSyncTimeout() time.Duration {
+	if k.CacheSyncTimeout == "" {
+		return DefaultCacheSyncTimeout
+	}
+	d, err := time.ParseDuration(k.CacheSyncTimeout)
+	if err != nil {
+		slog.Warn("Invalid cacheSyncTimeout, using default",
+			"value", k.CacheSyncTimeout,
+			"default", DefaultCacheSyncTimeout,
+		)
+		return DefaultCacheSyncTimeout
+	}
+	return d
+}
+
+// GetUITickInterval returns the overall UI tick interval derived from UIFPS.
+func (k *K9s) GetUITickInterval() time.Duration {
+	fps := k.UIFPS
+	if fps <= 0 {
+		fps = defaultUIFPS
+	}
+	return time.Second / time.Duration(fps)
+}
+
+// GetAnimationTickInterval returns the animation tick interval derived from FPS.
+func (k *K9s) GetAnimationTickInterval() time.Duration {
+	fps := k.AnimationFPS
+	if fps <= 0 {
+		fps = defaultAnimationFPS
+	}
+	return time.Second / time.Duration(fps)
 }
 
 // IsReadOnly returns the readonly setting.

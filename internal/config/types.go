@@ -3,9 +3,16 @@
 
 package config
 
+import "time"
+
 const (
 	defaultRefreshRate  = 2
 	defaultMaxConnRetry = 5
+	defaultUIFPS        = 15
+	defaultAnimationFPS = 240
+
+	// DefaultCacheSyncTimeout is the default time to wait for informer cache sync.
+	DefaultCacheSyncTimeout = 500 * time.Millisecond
 
 	// CPU tracks cpu usage.
 	CPU = "cpu"

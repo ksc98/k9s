@@ -74,6 +74,15 @@ type Tabular interface {
 	// SetRefreshRate sets the model watch loop rate.
 	SetRefreshRate(time.Duration)
 
+	// GetRefreshRate returns the model watch loop rate.
+	GetRefreshRate() time.Duration
+
+	// GetLastRefreshAt returns the time of the last successful refresh.
+	GetLastRefreshAt() time.Time
+
+	// GetRefreshCount returns the number of completed refreshes.
+	GetRefreshCount() int32
+
 	// AddListener registers a model listener.
 	AddListener(model.TableListener)
 

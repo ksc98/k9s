@@ -35,14 +35,15 @@ import (
 type Browser struct {
 	*Table
 
-	namespaces map[int]string
-	meta       *metav1.APIResource
-	accessor   dao.Accessor
-	contextFn  ContextFunc
-	cancelFn   context.CancelFunc
-	mx         sync.RWMutex
-	updating   bool
-	firstView  atomic.Int32
+	namespaces    map[int]string
+	meta          *metav1.APIResource
+	accessor      dao.Accessor
+	contextFn     ContextFunc
+	cancelFn      context.CancelFunc
+	animCancelFn  context.CancelFunc
+	mx            sync.RWMutex
+	updating      bool
+	firstView     atomic.Int32
 }
 
 // NewBrowser returns a new browser.
@@ -184,10 +185,12 @@ func (b *Browser) Start() {
 			})
 		}()
 	}
+	b.startBorderAnimation()
 }
 
 // Stop terminates browser updates.
 func (b *Browser) Stop() {
+	b.stopBorderAnimation()
 	b.mx.Lock()
 	if b.cancelFn != nil {
 		b.cancelFn()
@@ -197,6 +200,51 @@ func (b *Browser) Stop() {
 	b.GetModel().RemoveListener(b)
 	b.CmdBuff().RemoveListener(b)
 	b.Table.Stop()
+}
+
+func (b *Browser) startBorderAnimation() {
+	b.stopBorderAnimation()
+	ctx, cancel := context.WithCancel(context.Background())
+	b.mx.Lock()
+	b.animCancelFn = cancel
+	b.mx.Unlock()
+
+	go func() {
+		animTicker := time.NewTicker(b.app.Config.K9s.GetAnimationTickInterval())
+		uiTicker := time.NewTicker(b.app.Config.K9s.GetUITickInterval())
+		defer animTicker.Stop()
+		defer uiTicker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-uiTicker.C:
+				// Full redraw at UI FPS rate.
+				m := b.GetTable().GetModel()
+				if m != nil && m.GetRefreshCount() >= 2 {
+					b.app.QueueUpdateDraw(func() {})
+				}
+			case <-animTicker.C:
+				// Border-only update at animation FPS rate.
+				m := b.GetTable().GetModel()
+				if m != nil && m.GetRefreshCount() >= 2 {
+					b.app.QueueUpdate(func() {
+						b.GetTable().DrawBorderAnimation()
+					})
+				}
+			}
+		}
+	}()
+}
+
+func (b *Browser) stopBorderAnimation() {
+	b.mx.Lock()
+	if b.animCancelFn != nil {
+		b.animCancelFn()
+		b.animCancelFn = nil
+	}
+	b.mx.Unlock()
 }
 
 func (b *Browser) SetFilter(s string, wipe bool) {

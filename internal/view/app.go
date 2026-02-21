@@ -111,6 +111,7 @@ func (a *App) Init(version string, _ int) error {
 	if a.Conn() != nil {
 		ns := a.Config.ActiveNamespace()
 		a.factory = watch.NewFactory(a.Conn())
+		a.factory.SetCacheSyncTimeout(a.Config.K9s.GetCacheSyncTimeout())
 		a.initFactory(ns)
 
 		a.clusterModel = model.NewClusterInfo(a.factory, a.version, a.Config.K9s)
@@ -490,6 +491,7 @@ func (a *App) switchContext(ci *cmd.Interpreter, force bool) error {
 
 		if a.factory == nil && a.Conn() != nil {
 			a.factory = watch.NewFactory(a.Conn())
+			a.factory.SetCacheSyncTimeout(a.Config.K9s.GetCacheSyncTimeout())
 			a.clusterModel = model.NewClusterInfo(a.factory, a.version, a.Config.K9s)
 			a.clusterModel.AddListener(a.clusterInfo())
 			a.clusterModel.AddListener(a.statusIndicator())
@@ -761,12 +763,12 @@ func (a *App) lastCommand(evt *tcell.EventKey) *tcell.EventKey {
 	if evt != nil && evt.Rune() == ui.KeyDash && a.Prompt().InCmdMode() {
 		return evt
 	}
-	c, ok := a.cmdHistory.Top()
+	c, ok := a.cmdHistory.Last(2)
 	if !ok {
 		a.App.Flash().Warn("No previous view to switch to")
 		return evt
 	}
-	a.gotoResource(c, "", true, false)
+	a.gotoResource(c, "", true, true)
 
 	return nil
 }
